@@ -10,12 +10,29 @@ The headless layer for Wisp. Same MDX-in-Git content as the default theme, expos
 3. **A typed client + a static snapshot** — `createWispClient(baseUrl)` for consumers, and
    `buildSnapshot(config)` to bake the whole publication into one JSON file.
 
+## Rendering & SEO — read this before mounting the live API
+
+Keep the **indexed surface static.** The article HTML, JSON-LD, `sitemap.xml`, `llms.txt`, and
+the per-post `.md` are what Google and AI engines read — they should come from **static
+generation** (the default `@wisp/next` theme emits them at build, rebuilt on merge) or
+server-side rendering, never client-side fetches of this API. SEO/GEO needs the content in the
+server's HTML response; what breaks it is client-side-only rendering, not "a server existing."
+
+`handle()` is a **data channel, not that indexed surface.** It returns JSON for programmatic
+consumers — a separate app frontend, a mobile app, on-site search, integrations. A crawler
+pointed at your site never hits it. For a static headless frontend, prefer `buildSnapshot()`
+(one JSON file at build) over calling the live API from the browser.
+
+The artifact routes below (`/llms.txt`, `/sitemap.xml`, `/posts/:slug.md`) are a convenience
+for non-Next/headless hosts. If you serve them from `handle()`, **cache them** — they're
+deterministic from the MDX, so a crawler sees something effectively static either way.
+
 ## Endpoints
 
 ```
 GET /posts?status=&tag=&author=&limit=&offset=   → { count, posts[] }
 GET /posts/:slug                                  → PostDTO | 404
-GET /posts/:slug.md                               → text/markdown   (clean .md for AI crawlers)
+GET /posts/:slug.md                               → text/markdown   (clean .md for AI ingestion — keep static/cached)
 GET /tags                                         → { tags: [{ tag, count }] }
 GET /authors        ·  GET /authors/:id
 GET /search?q=&limit=                             → { count, hits[] }

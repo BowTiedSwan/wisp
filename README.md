@@ -79,6 +79,12 @@ GEO, for ChatGPT / Perplexity / Claude / AI Overviews — always on: `llms.txt` 
 hydrated DOM), `FAQPage`/`speakable` schema, author-entity E-E-A-T markup, and visible
 cited sources.
 
+This indexed surface is **emitted statically at build** (rebuilt on merge), which is what
+SEO/GEO needs — content in the server's HTML, not assembled client-side. The headless
+`@wisp/content-api` is a **separate JSON data channel** for app/programmatic consumers, not
+the crawlable surface; keep article pages and these artifacts static (or cached). See
+[`packages/content-api`](./packages/content-api) for the details.
+
 ## Develop
 
 ```bash
