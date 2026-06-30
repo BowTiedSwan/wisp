@@ -12,8 +12,8 @@ export function projectPackageJson(a: Answers): string {
   const deps: Record<string, string> = { "@wisp/core": "^0.0.1" };
   if (a.frontend === "next") {
     Object.assign(deps, {
-      next: "^15.0.0", react: "^18.3.1", "react-dom": "^18.3.1",
-      "@next/mdx": "^15.0.0", "@mdx-js/loader": "^3.0.0", "@mdx-js/react": "^3.0.0",
+      next: "^16.2.9", react: "^19.2.7", "react-dom": "^19.2.7",
+      "@next/mdx": "^16.2.9", "@mdx-js/loader": "^3.0.0", "@mdx-js/react": "^3.0.0",
     });
   }
   if (a.subscriptions === "resend") deps["resend"] = "^4.0.0";
@@ -31,7 +31,13 @@ export function projectPackageJson(a: Answers): string {
       type: "module",
       scripts,
       dependencies: deps,
-      devDependencies: { "@types/node": "^22.0.0", "@types/react": "^18.3.0", typescript: "^5.6.0" },
+      overrides: a.frontend === "next" ? { postcss: "^8.5.16" } : undefined,
+      devDependencies: {
+        "@types/node": "^22.0.0",
+        "@types/react": "^19.2.17",
+        "@types/react-dom": "^19.2.3",
+        typescript: "^6.0.3",
+      },
     },
     null,
     2,
@@ -43,10 +49,10 @@ export function tsconfig(): string {
     {
       compilerOptions: {
         target: "ES2022", lib: ["ES2022", "DOM", "DOM.Iterable"], module: "ESNext",
-        moduleResolution: "Bundler", jsx: "preserve", strict: true, skipLibCheck: true,
+        moduleResolution: "Bundler", jsx: "react-jsx", strict: true, skipLibCheck: true,
         esModuleInterop: true, paths: { "@/*": ["./*"] }, plugins: [{ name: "next" }],
       },
-      include: ["**/*.ts", "**/*.tsx"],
+      include: ["**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
       exclude: ["node_modules"],
     },
     null,
@@ -55,10 +61,21 @@ export function tsconfig(): string {
 }
 
 export function nextConfig(): string {
-  return `import createMDX from "@next/mdx";
+  return `import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import createMDX from "@next/mdx";
+
+const root = dirname(fileURLToPath(import.meta.url));
+
 const withMDX = createMDX({});
 /** @type {import('next').NextConfig} */
-const nextConfig = { pageExtensions: ["ts", "tsx", "md", "mdx"] };
+const nextConfig = {
+  pageExtensions: ["ts", "tsx", "md", "mdx"],
+  turbopack: { root },
+  async rewrites() {
+    return [{ source: "/blog/:slug.md", destination: "/blog-md/:slug" }];
+  },
+};
 export default withMDX(nextConfig);
 `;
 }
@@ -201,13 +218,17 @@ export function appBlogSlugPage(): string {
 import { loadPost, loadAuthor, buildMetadata, postGraph } from "@wisp/core";
 import { POSTS, AUTHORS, site, routes } from "@/lib/wisp";
 
-export function generateMetadata({ params }: { params: { slug: string } }) {
-  const post = loadPost(POSTS, params.slug, {});
+type Params = { params: Promise<{ slug: string }> };
+
+export async function generateMetadata({ params }: Params) {
+  const { slug } = await params;
+  const post = loadPost(POSTS, slug, {});
   return post ? buildMetadata(post, site, routes) : {};
 }
 
-export default function Page({ params }: { params: { slug: string } }) {
-  const post = loadPost(POSTS, params.slug, {});
+export default async function Page({ params }: Params) {
+  const { slug } = await params;
+  const post = loadPost(POSTS, slug, {});
   if (!post) notFound();
   const author = loadAuthor(AUTHORS, post.frontmatter.author);
   const graph = postGraph(post, author, site, routes);
@@ -227,13 +248,31 @@ export default function Page({ params }: { params: { slug: string } }) {
 }
 
 export function appBlogSlugMd(): string {
-  return `import { loadPost, loadAuthor, renderPostMarkdown } from "@wisp/core";
+  return `import type { NextRequest } from "next/server";
+import { loadPost, loadAuthor, loadPosts, renderPostMarkdown } from "@wisp/core";
 import { POSTS, AUTHORS, site, routes } from "@/lib/wisp";
 
-export function GET(_req: Request, { params }: { params: { slug: string } }) {
-  const post = loadPost(POSTS, params.slug, {});
+export const dynamic = "force-static";
+
+export function generateStaticParams() {
+  return loadPosts(POSTS).map((post) => ({ slug: post.slug }));
+}
+
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ slug?: string }> },
+) {
+  const { slug } = (await ctx.params) ?? {};
+
+  if (!slug) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const post = loadPost(POSTS, slug, {});
   if (!post) return new Response("Not found", { status: 404 });
+
   const author = loadAuthor(AUTHORS, post.frontmatter.author);
+
   return new Response(renderPostMarkdown(post, author, site, routes), {
     headers: { "content-type": "text/markdown; charset=utf-8" },
   });
@@ -654,6 +693,11 @@ does this), then \`npm run validate\`. The \`wisp-publish\` skill opens the PR.
 \`sitemap.xml\`, \`robots.txt\`, \`feed.xml\`, \`llms.txt\`, \`llms-full.txt\`, per-post JSON-LD
 (Article/FAQPage/speakable + author entity), and a clean \`.md\` version of every post at
 \`/blog/<slug>.md\` for AI crawlers.
+
+In Next.js projects, the \`.md\` surface is served by the internal
+\`app/blog-md/[slug]/route.ts\` route and rewritten from \`/blog/:slug.md\`. This avoids
+Next App Router edge cases with suffixed dynamic segments while preserving the public
+crawler-facing URL.
 
 ## Deploy
 ${a.frontend === "headless"

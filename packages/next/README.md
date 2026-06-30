@@ -24,6 +24,11 @@ all handled.
 /sitemap.xml /robots.txt /feed.xml /llms.txt /llms-full.txt
 ```
 
+The Markdown route is implemented internally as `app/blog-md/[slug]/route.ts` and
+rewritten from `/blog/:slug.md` in `next.config.mjs`. This avoids App Router edge
+cases around suffixed dynamic segments such as `app/blog/[slug].md/route.ts`, while
+keeping the public crawler-facing URL as `/blog/<slug>.md`.
+
 ## Run
 
 ```bash

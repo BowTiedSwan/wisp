@@ -111,14 +111,54 @@ export default function Page({ params }: { params: { slug: string } }) {
 }
 ```
 
-## The content-negotiated `.md` endpoint — `app/blog/[slug].md/route.ts`
+## The content-negotiated `.md` endpoint
+
+Use an internal route handler at `app/blog-md/[slug]/route.ts`, then rewrite the
+public crawl URL `/blog/<slug>.md` to that handler.
+
+Do not use `app/blog/[slug].md/route.ts`: Next's App Router type generation and
+runtime matching treat suffixed dynamic segments inconsistently. The separate
+`blog-md` route avoids colliding with `app/blog/[slug]/page.tsx` and keeps the
+public `.md` URL stable through the rewrite.
+
+```js
+// next.config.mjs
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = dirname(fileURLToPath(import.meta.url));
+
+const nextConfig = {
+  turbopack: { root },
+  async rewrites() {
+    return [{ source: "/blog/:slug.md", destination: "/blog-md/:slug" }];
+  },
+};
+export default nextConfig;
+```
 
 ```ts
-import { loadPost, loadAuthor, renderPostMarkdown } from "@wisp/core";
+import type { NextRequest } from "next/server";
+import { loadPost, loadAuthor, loadPosts, renderPostMarkdown } from "@wisp/core";
 import { POSTS, AUTHORS, site, routes } from "@/lib/wisp";
 
-export function GET(_req: Request, { params }: { params: { slug: string } }) {
-  const post = loadPost(POSTS, params.slug, {});
+export const dynamic = "force-static";
+
+export function generateStaticParams() {
+  return loadPosts(POSTS).map((post) => ({ slug: post.slug }));
+}
+
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ slug?: string }> },
+) {
+  const { slug } = (await ctx.params) ?? {};
+
+  if (!slug) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const post = loadPost(POSTS, slug, {});
   if (!post) return new Response("Not found", { status: 404 });
   const author = loadAuthor(AUTHORS, post.frontmatter.author);
   const md = renderPostMarkdown(post, author, site, routes);
